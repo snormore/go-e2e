@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	// TODO: This should have a random suffix and get cleaned up after.
-	containerBuildImage = "e2e-test-runner:dev"
-	tmpDirPrefix        = "e2e-test-runner"
+	containerBuildImagePrefix = "e2e-test-runner"
+	tmpDirPrefix              = "e2e-test-runner"
 )
 
 type TestRunnerConfig struct {
@@ -40,9 +39,10 @@ type TestRunnerConfig struct {
 type TestRunner struct {
 	config TestRunnerConfig
 
-	tmpDir       string
-	tmpAssetsDir string
-	tmpBinDir    string
+	tmpDir              string
+	tmpAssetsDir        string
+	tmpBinDir           string
+	containerBuildImage string
 
 	mu              sync.Mutex
 	failedTests     []string
@@ -76,6 +76,9 @@ func (r *TestRunner) Setup() error {
 	if err != nil {
 		return fmt.Errorf("failed to create tmp directory: %v", err)
 	}
+
+	// Initialize the container build image.
+	r.containerBuildImage = fmt.Sprintf("%s-%s:dev", containerBuildImagePrefix, randomShortID())
 
 	// Initialize the assets directory and copy the assets.
 	r.tmpAssetsDir = filepath.Join(r.tmpDir, "assets")
@@ -167,12 +170,12 @@ func (r *TestRunner) buildDockerImage() error {
 		return fmt.Errorf("failed to copy Dockerfile: %v", err)
 	}
 
-	fmt.Println("--- INFO: Building docker image (this may take a while)...")
+	fmt.Printf("--- INFO: Building docker image %s (this may take a while)...\n", r.containerBuildImage)
 	start := time.Now()
 	buildDockerCmd := exec.Command("docker", "build",
 		"--build-arg", "TEST_BIN=bin/run-test",
 		"--build-arg", "TEST_ASSETS=assets",
-		"-t", containerBuildImage,
+		"-t", r.containerBuildImage,
 		"-f", tmpDockerfilePath,
 		r.tmpDir)
 	buildDockerCmd.Dir = r.tmpDir
@@ -309,7 +312,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 			args = append(args, strings.Fields(arg)...)
 		}
 	}
-	args = append(args, containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
+	args = append(args, r.containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
 	if r.config.Verbosity > 0 {
 		args = append(args, "-test.v")
 	}
@@ -411,6 +414,9 @@ func sanitizeContainerName(testName string) string {
 	if len(name) > 20 {
 		name = name[:20]
 	}
-	suffix := fmt.Sprintf("%04x", rand.Intn(65536))
-	return fmt.Sprintf("e2e-%s-%s", name, suffix)
+	return fmt.Sprintf("e2e-%s-%s", name, randomShortID())
+}
+
+func randomShortID() string {
+	return fmt.Sprintf("%04x", rand.Intn(65536))
 }

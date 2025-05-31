@@ -1,8 +1,10 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -14,24 +16,28 @@ import (
 )
 
 const (
+	// TODO: This should have a random suffix and get cleaned up after.
 	containerBuildImage = "e2e-test-runner:dev"
 	tmpDirPrefix        = "e2e-test-runner"
 )
 
+// TODO: Use slog for logging.
+
 type TestRunner struct {
-	testDir     string
-	dockerfile  string
-	testAssets  []string
-	noFastFail  bool
-	noParallel  bool
-	parallelism int
-	verbose     bool
-	tmpDir      string
-	assetsDir   string
-	binDir      string
+	testDir      string
+	dockerfile   string
+	testAssets   []string
+	noFastFail   bool
+	noParallel   bool
+	parallelism  int
+	verbose      bool
+	tmpDir       string
+	tmpAssetsDir string
+	tmpBinDir    string
+	buildTags    string
 }
 
-func NewTestRunner(testDir, dockerfile, testAssets string, verbose, noFastFail, noParallel bool, parallelism int) *TestRunner {
+func NewTestRunner(testDir, dockerfile, testAssets string, verbose, noFastFail, noParallel bool, parallelism int, buildTags string) *TestRunner {
 	return &TestRunner{
 		testDir:     testDir,
 		dockerfile:  dockerfile,
@@ -40,6 +46,7 @@ func NewTestRunner(testDir, dockerfile, testAssets string, verbose, noFastFail, 
 		noParallel:  noParallel,
 		parallelism: parallelism,
 		verbose:     verbose,
+		buildTags:   buildTags,
 	}
 }
 
@@ -53,8 +60,8 @@ func (r *TestRunner) Setup() error {
 	}
 
 	// Initialize the assets directory and copy the assets.
-	r.assetsDir = filepath.Join(r.tmpDir, "assets")
-	if err := os.MkdirAll(r.assetsDir, 0755); err != nil {
+	r.tmpAssetsDir = filepath.Join(r.tmpDir, "assets")
+	if err := os.MkdirAll(r.tmpAssetsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create assets directory: %v", err)
 	}
 	if err := r.copyAssets(); err != nil {
@@ -62,8 +69,8 @@ func (r *TestRunner) Setup() error {
 	}
 
 	// Initialize the binary directory and build the test binary.
-	r.binDir = filepath.Join(r.tmpDir, "bin")
-	if err := os.MkdirAll(r.binDir, 0755); err != nil {
+	r.tmpBinDir = filepath.Join(r.tmpDir, "bin")
+	if err := os.MkdirAll(r.tmpBinDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bin directory: %v", err)
 	}
 	if err := r.buildTestBinary(); err != nil {
@@ -89,8 +96,8 @@ func (r *TestRunner) copyAssets() error {
 			continue
 		}
 		assetPath := r.testDir + "/" + asset
-		fmt.Printf("--- INFO: Copying %s to %s\n", assetPath, filepath.Join(r.assetsDir, asset))
-		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.assetsDir, asset)).Run(); err != nil {
+		fmt.Printf("--- INFO: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
+		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.tmpAssetsDir, asset)).Run(); err != nil {
 			return fmt.Errorf("failed to copy %s: %v", asset, err)
 		}
 	}
@@ -98,21 +105,31 @@ func (r *TestRunner) copyAssets() error {
 }
 
 func (r *TestRunner) buildTestBinary() error {
-	fmt.Printf("--- INFO: Building test binary in %s...\n", r.binDir)
-	buildCmd := exec.Command("go", "test", r.testDir, "-c", "-o", filepath.Join(r.binDir, "run-test"))
-	if err := buildCmd.Run(); err != nil {
-		return fmt.Errorf("failed to build test binary: %v", err)
+	fmt.Printf("--- INFO: Building test binary in %s...\n", r.tmpBinDir)
+	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-test"), "."}
+	if r.buildTags != "" {
+		args = append(args, "-tags", r.buildTags)
 	}
+	buildCmd := exec.Command("go", args...)
+	buildCmd.Dir = r.testDir
+	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
+	fmt.Printf("--- INFO: Running %s\n", strings.Join(buildCmd.Args, " "))
+	output, err := buildCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to build test binary: %v\n%s", err, string(output))
+	}
+
 	return nil
 }
 
 func (r *TestRunner) buildDockerImage() error {
-	if _, err := os.Stat(r.dockerfile); os.IsNotExist(err) {
-		return fmt.Errorf("dockerfile not found at %s", r.dockerfile)
+	localDockerfilePath := filepath.Join(r.testDir, r.dockerfile)
+	if _, err := os.Stat(localDockerfilePath); os.IsNotExist(err) {
+		return fmt.Errorf("dockerfile not found at %s", localDockerfilePath)
 	}
 
-	dockerfilePath := filepath.Join(r.tmpDir, "Dockerfile")
-	if err := exec.Command("cp", r.dockerfile, dockerfilePath).Run(); err != nil {
+	tmpDockerfilePath := filepath.Join(r.tmpDir, "Dockerfile")
+	if err := exec.Command("cp", localDockerfilePath, tmpDockerfilePath).Run(); err != nil {
 		return fmt.Errorf("failed to copy Dockerfile: %v", err)
 	}
 
@@ -122,8 +139,9 @@ func (r *TestRunner) buildDockerImage() error {
 		"--build-arg", "TEST_BIN=bin/run-test",
 		"--build-arg", "TEST_ASSETS=assets",
 		"-t", containerBuildImage,
-		"-f", dockerfilePath,
+		"-f", tmpDockerfilePath,
 		r.tmpDir)
+	buildDockerCmd.Dir = r.tmpDir
 	output, err := buildDockerCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to build docker image\n%s", output)
@@ -133,12 +151,22 @@ func (r *TestRunner) buildDockerImage() error {
 }
 
 func (r *TestRunner) getTestsToRun() ([]string, error) {
-	testListCmd := exec.Command(filepath.Join(r.binDir, "run-test"), "-test.list", ".")
-	testListOutput, err := testListCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get test list: %v", err)
+	args := []string{"test", "-list", "."}
+	if r.buildTags != "" {
+		args = append(args, "-tags", r.buildTags)
 	}
-	return strings.Split(strings.TrimSpace(string(testListOutput)), "\n"), nil
+	testListCmd := exec.Command("go", args...)
+	testListCmd.Dir = r.testDir
+	testListOutput, err := testListCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get test list: %v\n%s", err, string(testListOutput))
+	}
+	testsToRun := strings.Split(strings.TrimSpace(string(testListOutput)), "\n")
+	testsToRunLen := len(testsToRun)
+	if testsToRunLen > 0 && strings.HasPrefix(testsToRun[testsToRunLen-1], "ok") {
+		testsToRun = testsToRun[:testsToRunLen-1]
+	}
+	return testsToRun, nil
 }
 
 func (r *TestRunner) RunTests() error {
@@ -158,7 +186,13 @@ func (r *TestRunner) RunTests() error {
 	var testTimings = make(map[string]time.Duration)
 
 	suiteStart := time.Now()
-	fmt.Printf("--- INFO: Running %d tests %s...\n", len(testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.parallelism)}[r.noParallel])
+	if len(testsToRun) == 1 {
+		fmt.Printf("--- INFO: Running 1 test...\n")
+	} else if len(testsToRun) > 1 {
+		fmt.Printf("--- INFO: Running %d tests %s...\n", len(testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.parallelism)}[r.noParallel])
+	} else {
+		fmt.Printf("--- INFO: No tests to run.\n")
+	}
 
 	sem := make(chan struct{}, r.parallelism)
 
@@ -192,14 +226,18 @@ func (r *TestRunner) runTest(test string, mu *sync.Mutex, failedTests, passedTes
 
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 		"--name", sanitizeContainerName(test),
-		"--cap-add", "CAP_SYS_ADMIN",
-		"--cap-add", "NET_ADMIN",
+		"--entrypoint", "/bin/run-test",
 		containerBuildImage,
 		"-test.run", fmt.Sprintf("^%s$", test))
+	cmd.Dir = r.tmpDir
 
+	var output bytes.Buffer
 	if r.verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = io.MultiWriter(os.Stdout, &output)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &output)
+	} else {
+		cmd.Stdout = &output
+		cmd.Stderr = &output
 	}
 
 	if err := cmd.Run(); err != nil {
@@ -235,7 +273,11 @@ func (r *TestRunner) runTest(test string, mu *sync.Mutex, failedTests, passedTes
 		testTimings[test] = time.Since(start)
 		mu.Unlock()
 		if test == (*failedTests)[0] {
-			fmt.Printf("--- FAIL: %s (%.2fs)\n", test, testTimings[test].Seconds())
+			if r.verbose {
+				fmt.Printf("--- FAIL: %s (%.2fs)\n", test, testTimings[test].Seconds())
+			} else {
+				fmt.Printf("--- FAIL: %s (%.2fs)\n%s", test, testTimings[test].Seconds(), output.String())
+			}
 		}
 	} else {
 		mu.Lock()

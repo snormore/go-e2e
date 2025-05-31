@@ -13,21 +13,23 @@ var (
 	// TODO: Consider using clap here and include a help command.
 	testDir     = flag.String("test-dir", ".", "Path to the test directory")
 	dockerfile  = flag.String("dockerfile", "Dockerfile", "Path to the Dockerfile to use to run the tests")
-	testAssets  = flag.String("test-assets", "fixtures", "Comma-separated list of test assets to copy from the test directory")
+	testAssets  = flag.String("test-assets", "", "Comma-separated list of test assets to copy from the test directory")
 	verbose     = flag.Bool("v", false, "Show verbose test output")
 	noFastFail  = flag.Bool("no-fast-fail", false, "Run all tests even if one fails")
 	noParallel  = flag.Bool("no-parallel", false, "Run tests sequentially instead of in parallel")
 	parallelism = flag.Int("p", runtime.NumCPU(), "Number of tests to run in parallel")
+	buildTags   = flag.String("build-tags", "e2e", "Build tags to use when building the test binary")
 )
 
 func main() {
 	flag.Parse()
 
 	// Initialize the test runner.
-	runner := e2e.NewTestRunner(*testDir, *dockerfile, *testAssets, *verbose, *noFastFail, *noParallel, *parallelism)
+	runner := e2e.NewTestRunner(*testDir, *dockerfile, *testAssets, *verbose, *noFastFail, *noParallel, *parallelism, *buildTags)
 	if err := runner.Setup(); err != nil {
 		exitWithError(err)
 	}
+	// TODO: Confirm this is cleaning up the temp dir and containers.
 	defer runner.Cleanup()
 
 	// Find and run the tests.

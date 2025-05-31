@@ -162,7 +162,7 @@ func (r *TestRunner) Setup() error {
 }
 
 func (r *TestRunner) Cleanup() {
-	os.RemoveAll(r.tmpDir)
+	_ = os.RemoveAll(r.tmpDir)
 }
 
 func (r *TestRunner) copyAssets() error {
@@ -172,7 +172,9 @@ func (r *TestRunner) copyAssets() error {
 			continue
 		}
 		assetPath := r.testDir + "/" + asset
-		fmt.Printf("--- INFO: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
+		if r.verbose {
+			fmt.Printf("--- DEBUG: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
+		}
 		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.tmpAssetsDir, asset)).Run(); err != nil {
 			return fmt.Errorf("failed to copy %s: %v", asset, err)
 		}
@@ -181,7 +183,9 @@ func (r *TestRunner) copyAssets() error {
 }
 
 func (r *TestRunner) buildTestBinary() error {
-	fmt.Printf("--- INFO: Building test binary in %s...\n", r.tmpBinDir)
+	if r.verbose {
+		fmt.Printf("--- DEBUG: Building test binary in %s\n", r.tmpBinDir)
+	}
 	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-test"), "."}
 	if r.buildTags != "" {
 		args = append(args, "-tags", r.buildTags)

@@ -22,7 +22,7 @@ run-help:
 .PHONY: run-example
 run-example:
 	@echo "=== Running example..."
-	cd example && go tool go-e2e
+	cd example && go tool go-e2e -v
 
 .PHONY: checks
 checks: lint test build run-example

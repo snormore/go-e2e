@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/build/constraint"
+	"go/parser"
+	"go/token"
 	"io"
 	"math/rand"
 	"os"
@@ -216,22 +220,74 @@ func (r *TestRunner) buildDockerImage() error {
 }
 
 func (r *TestRunner) getTestsToRun() ([]string, error) {
-	args := []string{"test", "-list", "."}
-	if r.buildTags != "" {
-		args = append(args, "-tags", r.buildTags)
-	}
-	testListCmd := exec.Command("go", args...)
-	testListCmd.Dir = r.testDir
-	testListOutput, err := testListCmd.CombinedOutput()
+	var tests []string
+	fset := token.NewFileSet()
+	err := filepath.Walk(r.testDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, "_test.go") {
+			// Parse the file for test functions and build constraints.
+			f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+			if err != nil {
+				return fmt.Errorf("failed to parse %s: %v", path, err)
+			}
+
+			// Check build tags.
+			if r.buildTags != "" {
+				buildTags := strings.Split(r.buildTags, ",")
+				var buildConstraint constraint.Expr
+
+				// Find build constraint in comments before package declaration.
+				for _, cg := range f.Comments {
+					for _, c := range cg.List {
+						text := strings.TrimSpace(c.Text)
+						if constraint.IsGoBuild(text) {
+							buildConstraint, err = constraint.Parse(text)
+							if err != nil {
+								return fmt.Errorf("failed to parse build constraint %q: %v", text, err)
+							}
+							break
+						}
+					}
+
+					// Stop early if the comment group ends before package declaration.
+					if cg.End() >= f.Package {
+						break
+					}
+				}
+
+				if buildConstraint != nil {
+					// Create a tag set for evaluation
+					tagSet := make(map[string]bool)
+					for _, tag := range buildTags {
+						tagSet[tag] = true
+					}
+
+					if !buildConstraint.Eval(func(tag string) bool {
+						return tagSet[tag]
+					}) {
+						return nil
+					}
+				}
+			}
+
+			for _, decl := range f.Decls {
+				funcDecl, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				if strings.HasPrefix(funcDecl.Name.Name, "Test") {
+					tests = append(tests, funcDecl.Name.Name)
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get test list: %v\n%s", err, string(testListOutput))
+		return nil, fmt.Errorf("failed to find tests: %v", err)
 	}
-	testsToRun := strings.Split(strings.TrimSpace(string(testListOutput)), "\n")
-	testsToRunLen := len(testsToRun)
-	if testsToRunLen > 0 && strings.HasPrefix(testsToRun[testsToRunLen-1], "ok") {
-		testsToRun = testsToRun[:testsToRunLen-1]
-	}
-	return testsToRun, nil
+	return tests, nil
 }
 
 func (r *TestRunner) RunTests() error {
@@ -283,7 +339,6 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 		"--name", sanitizeContainerName(test),
-		"--entrypoint", "/bin/run-test",
 		containerBuildImage,
 		"-test.run", fmt.Sprintf("^%s$", test))
 	cmd.Dir = r.tmpDir

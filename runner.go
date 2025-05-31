@@ -189,7 +189,9 @@ func (r *TestRunner) buildTestBinary() error {
 	buildCmd := exec.Command("go", args...)
 	buildCmd.Dir = r.testDir
 	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
-	fmt.Printf("--- INFO: Running %s\n", strings.Join(buildCmd.Args, " "))
+	if r.verbose {
+		fmt.Printf("--- DEBUG: Running %s\n", strings.Join(buildCmd.Args, " "))
+	}
 	output, err := buildCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to build test binary: %v\n%s", err, string(output))
@@ -345,11 +347,13 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	start := time.Now()
 
 	args := []string{"run", "--rm",
-		"--name", sanitizeContainerName(test),
-		containerBuildImage,
-		"-test.run", fmt.Sprintf("^%s$", test)}
+		"--name", sanitizeContainerName(test)}
 	args = append(args, r.dockerRunArgs...)
+	args = append(args, containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	if r.verbose {
+		fmt.Printf("--- DEBUG: Running %s\n", strings.Join(cmd.Args, " "))
+	}
 	cmd.Dir = r.tmpDir
 
 	var output bytes.Buffer

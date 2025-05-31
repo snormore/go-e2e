@@ -55,6 +55,8 @@ func main() {
 		},
 	}
 
+	// TODO: Support an e2e.yaml config file for all of this.
+
 	rootCmd.Flags().StringVarP(&dockerfile, "dockerfile", "f", "Dockerfile", "Path to the Dockerfile to use to run the tests")
 	rootCmd.Flags().StringSliceVarP(&testAssets, "test-assets", "a", nil, "Test assets to copy from the test directory")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose test output")

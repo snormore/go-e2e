@@ -25,19 +25,24 @@ const (
 	tmpDirPrefix        = "e2e-test-runner"
 )
 
+type TestRunnerConfig struct {
+	TestDir       string   `yaml:"test-dir"`
+	Dockerfile    string   `yaml:"dockerfile"`
+	TestAssets    []string `yaml:"test-assets"`
+	BuildTags     string   `yaml:"build-tags"`
+	DockerRunArgs []string `yaml:"docker-run-args"`
+	Verbosity     int      `yaml:"verbosity"`
+	NoFastFail    bool     `yaml:"no-fast-fail"`
+	NoParallel    bool     `yaml:"no-parallel"`
+	Parallelism   int      `yaml:"parallelism"`
+}
+
 type TestRunner struct {
-	testDir       string
-	dockerfile    string
-	testAssets    []string
-	noFastFail    bool
-	noParallel    bool
-	parallelism   int
-	verbosity     int
-	tmpDir        string
-	tmpAssetsDir  string
-	tmpBinDir     string
-	buildTags     string
-	dockerRunArgs []string
+	config TestRunnerConfig
+
+	tmpDir       string
+	tmpAssetsDir string
+	tmpBinDir    string
 
 	mu              sync.Mutex
 	failedTests     []string
@@ -47,77 +52,20 @@ type TestRunner struct {
 	testsToRun      []string
 }
 
-func NewTestRunner(options ...Option) (*TestRunner, error) {
-	runner := &TestRunner{}
-	for _, option := range options {
-		option(runner)
+func NewTestRunner(config TestRunnerConfig) (*TestRunner, error) {
+	runner := &TestRunner{
+		config: config,
 	}
 
 	// Validate required options.
-	if runner.testDir == "" {
+	if config.TestDir == "" {
 		return nil, fmt.Errorf("testDir is required")
 	}
-	if runner.dockerfile == "" {
+	if config.Dockerfile == "" {
 		return nil, fmt.Errorf("dockerfile is required")
 	}
 
 	return runner, nil
-}
-
-type Option func(*TestRunner)
-
-func WithTestDir(testDir string) Option {
-	return func(r *TestRunner) {
-		r.testDir = testDir
-	}
-}
-
-func WithDockerfile(dockerfile string) Option {
-	return func(r *TestRunner) {
-		r.dockerfile = dockerfile
-	}
-}
-
-func WithTestAssets(testAssets []string) Option {
-	return func(r *TestRunner) {
-		r.testAssets = testAssets
-	}
-}
-
-func WithNoFastFail(noFastFail bool) Option {
-	return func(r *TestRunner) {
-		r.noFastFail = noFastFail
-	}
-}
-
-func WithNoParallel(noParallel bool) Option {
-	return func(r *TestRunner) {
-		r.noParallel = noParallel
-	}
-}
-
-func WithParallelism(parallelism int) Option {
-	return func(r *TestRunner) {
-		r.parallelism = parallelism
-	}
-}
-
-func WithVerbosity(verbosity int) Option {
-	return func(r *TestRunner) {
-		r.verbosity = verbosity
-	}
-}
-
-func WithBuildTags(buildTags string) Option {
-	return func(r *TestRunner) {
-		r.buildTags = buildTags
-	}
-}
-
-func WithDockerRunArgs(dockerRunArgs []string) Option {
-	return func(r *TestRunner) {
-		r.dockerRunArgs = dockerRunArgs
-	}
 }
 
 func (r *TestRunner) Setup() error {
@@ -158,8 +106,8 @@ func (r *TestRunner) Setup() error {
 		return fmt.Errorf("failed to get tests to run: %v", err)
 	}
 
-	if r.verbosity > 0 {
-		fmt.Printf("--- INFO: Running with verbosity %d\n", r.verbosity)
+	if r.config.Verbosity > 0 {
+		fmt.Printf("--- INFO: Running with verbosity %d\n", r.config.Verbosity)
 	}
 
 	return nil
@@ -170,13 +118,13 @@ func (r *TestRunner) Cleanup() {
 }
 
 func (r *TestRunner) copyAssets() error {
-	for _, asset := range r.testAssets {
+	for _, asset := range r.config.TestAssets {
 		asset = strings.TrimSpace(asset)
 		if asset == "" {
 			continue
 		}
-		assetPath := r.testDir + "/" + asset
-		if r.verbosity > 1 {
+		assetPath := r.config.TestDir + "/" + asset
+		if r.config.Verbosity > 1 {
 			fmt.Printf("--- DEBUG: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
 		}
 		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.tmpAssetsDir, asset)).Run(); err != nil {
@@ -187,18 +135,17 @@ func (r *TestRunner) copyAssets() error {
 }
 
 func (r *TestRunner) buildTestBinary() error {
-	if r.verbosity > 1 {
+	if r.config.Verbosity > 1 {
 		fmt.Printf("--- DEBUG: Building test binary in %s\n", r.tmpBinDir)
 	}
 	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-test"), "."}
-	if r.buildTags != "" {
-		// TODO: Make sure this is working.
-		args = append(args, "-tags", r.buildTags)
+	if r.config.BuildTags != "" {
+		args = append(args, "-tags", r.config.BuildTags)
 	}
 	buildCmd := exec.Command("go", args...)
-	buildCmd.Dir = r.testDir
+	buildCmd.Dir = r.config.TestDir
 	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
-	if r.verbosity > 1 {
+	if r.config.Verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(buildCmd.Args, " "))
 	}
 	output, err := buildCmd.CombinedOutput()
@@ -210,7 +157,7 @@ func (r *TestRunner) buildTestBinary() error {
 }
 
 func (r *TestRunner) buildDockerImage() error {
-	localDockerfilePath := filepath.Join(r.testDir, r.dockerfile)
+	localDockerfilePath := filepath.Join(r.config.TestDir, r.config.Dockerfile)
 	if _, err := os.Stat(localDockerfilePath); os.IsNotExist(err) {
 		return fmt.Errorf("dockerfile not found at %s", localDockerfilePath)
 	}
@@ -240,7 +187,7 @@ func (r *TestRunner) buildDockerImage() error {
 func (r *TestRunner) getTestsToRun() ([]string, error) {
 	var tests []string
 	fset := token.NewFileSet()
-	err := filepath.Walk(r.testDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(r.config.TestDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -252,8 +199,8 @@ func (r *TestRunner) getTestsToRun() ([]string, error) {
 			}
 
 			// Check build tags.
-			if r.buildTags != "" {
-				buildTags := strings.Split(r.buildTags, ",")
+			if r.config.BuildTags != "" {
+				buildTags := strings.Split(r.config.BuildTags, ",")
 				var buildConstraint constraint.Expr
 
 				// Find build constraint in comments before package declaration.
@@ -322,13 +269,13 @@ func (r *TestRunner) RunTests() error {
 	case 0:
 		fmt.Printf("--- INFO: No tests to run.\n")
 	default:
-		fmt.Printf("--- INFO: Running %d tests %s...\n", len(r.testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.parallelism)}[r.noParallel])
+		fmt.Printf("--- INFO: Running %d tests %s...\n", len(r.testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.config.Parallelism)}[r.config.NoParallel])
 	}
 
-	sem := make(chan struct{}, r.parallelism)
+	sem := make(chan struct{}, r.config.Parallelism)
 
 	for _, test := range r.testsToRun {
-		if r.noParallel {
+		if r.config.NoParallel {
 			r.runTest(ctx, test, cancel)
 		} else {
 			wg.Add(1)
@@ -341,7 +288,7 @@ func (r *TestRunner) RunTests() error {
 		}
 	}
 
-	if !r.noParallel {
+	if !r.config.NoParallel {
 		wg.Wait()
 	}
 	suiteDuration := time.Since(suiteStart)
@@ -357,23 +304,23 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 
 	args := []string{"run", "--rm",
 		"--name", sanitizeContainerName(test)}
-	if len(r.dockerRunArgs) > 0 {
-		for _, arg := range r.dockerRunArgs {
+	if len(r.config.DockerRunArgs) > 0 {
+		for _, arg := range r.config.DockerRunArgs {
 			args = append(args, strings.Fields(arg)...)
 		}
 	}
 	args = append(args, containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
-	if r.verbosity > 0 {
+	if r.config.Verbosity > 0 {
 		args = append(args, "-test.v")
 	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	if r.verbosity > 1 {
+	if r.config.Verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(cmd.Args, " "))
 	}
 	cmd.Dir = r.tmpDir
 
 	var output bytes.Buffer
-	if r.verbosity > 0 {
+	if r.config.Verbosity > 0 {
 		cmd.Stdout = io.MultiWriter(os.Stdout, &output)
 		cmd.Stderr = io.MultiWriter(os.Stderr, &output)
 	} else {
@@ -384,7 +331,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	if err := cmd.Run(); err != nil {
 		r.mu.Lock()
 		if len(r.failedTests) == 0 {
-			if !r.noFastFail {
+			if !r.config.NoFastFail {
 				cancel()
 				for _, t := range r.testsToRun {
 					t = strings.TrimSpace(t)
@@ -414,7 +361,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 		r.testTimings[test] = time.Since(start)
 		r.mu.Unlock()
 		if test == r.failedTests[0] {
-			if r.verbosity > 0 {
+			if r.config.Verbosity > 0 {
 				fmt.Printf("--- FAIL: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 			} else {
 				fmt.Printf("--- FAIL: %s (%.2fs)\n%s", test, r.testTimings[test].Seconds(), output.String())
@@ -441,7 +388,7 @@ func (r *TestRunner) printSummary(suiteDuration time.Duration) {
 		for _, test := range r.passedTests {
 			fmt.Printf("PASS: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 		}
-		if !r.noFastFail {
+		if !r.config.NoFastFail {
 			for _, test := range r.failedTests {
 				fmt.Printf("FAIL: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 			}

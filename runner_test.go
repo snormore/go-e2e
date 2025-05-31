@@ -5,13 +5,13 @@ import (
 )
 
 func TestTestRunner(t *testing.T) {
-	runner, err := NewTestRunner(
-		WithTestDir("example"),
-		WithDockerfile("Dockerfile"),
-		WithBuildTags("e2e"),
-		WithParallelism(1),
-		WithVerbosity(2),
-	)
+	runner, err := NewTestRunner(TestRunnerConfig{
+		TestDir:     "example",
+		Dockerfile:  "Dockerfile",
+		BuildTags:   "e2e",
+		Parallelism: 1,
+		Verbosity:   2,
+	})
 	if err != nil {
 		t.Fatalf("failed to create test runner: %v", err)
 	}

@@ -26,17 +26,18 @@ const (
 )
 
 type TestRunner struct {
-	testDir      string
-	dockerfile   string
-	testAssets   []string
-	noFastFail   bool
-	noParallel   bool
-	parallelism  int
-	verbose      bool
-	tmpDir       string
-	tmpAssetsDir string
-	tmpBinDir    string
-	buildTags    string
+	testDir       string
+	dockerfile    string
+	testAssets    []string
+	noFastFail    bool
+	noParallel    bool
+	parallelism   int
+	verbose       bool
+	tmpDir        string
+	tmpAssetsDir  string
+	tmpBinDir     string
+	buildTags     string
+	dockerRunArgs []string
 
 	mu              sync.Mutex
 	failedTests     []string
@@ -110,6 +111,12 @@ func WithVerbose(verbose bool) Option {
 func WithBuildTags(buildTags string) Option {
 	return func(r *TestRunner) {
 		r.buildTags = buildTags
+	}
+}
+
+func WithDockerRunArgs(dockerRunArgs string) Option {
+	return func(r *TestRunner) {
+		r.dockerRunArgs = strings.Split(dockerRunArgs, " ")
 	}
 }
 
@@ -337,10 +344,12 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	fmt.Printf("=== RUN: %s\n", test)
 	start := time.Now()
 
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+	args := []string{"run", "--rm",
 		"--name", sanitizeContainerName(test),
 		containerBuildImage,
-		"-test.run", fmt.Sprintf("^%s$", test))
+		"-test.run", fmt.Sprintf("^%s$", test)}
+	args = append(args, r.dockerRunArgs...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = r.tmpDir
 
 	var output bytes.Buffer

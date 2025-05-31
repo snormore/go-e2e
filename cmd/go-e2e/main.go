@@ -61,7 +61,7 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&configFile, "config", "f", "", "Path to config file (YAML)")
+	rootCmd.Flags().StringVarP(&configFile, "config", "f", "e2e.yaml", "Path to config file (YAML)")
 	rootCmd.Flags().StringVar(&config.Dockerfile, "dockerfile", defaultDockerfile, "Path to the Dockerfile to use to run the tests")
 	rootCmd.Flags().StringArrayVar(&config.TestAssets, "test-asset", nil, "Test assets to copy from the test directory. You can use this multiple times to add multiple assets.")
 	rootCmd.Flags().CountVarP(&config.Verbosity, "verbose", "v", "Verbosity level. Can be specified multiple times to increase verbosity.")
@@ -81,40 +81,41 @@ func main() {
 	if configFile != "" {
 		data, err := os.ReadFile(configFile)
 		if err != nil {
-			fmt.Printf("--- ERROR: Failed to read config file: %v\n", err)
-			os.Exit(1)
-		}
+			fmt.Printf("--- INFO: Config file not found, using defaults: %v\n", err)
+		} else {
+			fmt.Printf("--- INFO: Using config file: %s\n", configFile)
 
-		var fileConfig e2e.TestRunnerConfig
-		if err := yaml.Unmarshal(data, &fileConfig); err != nil {
-			fmt.Printf("--- ERROR: Failed to parse config file: %v\n", err)
-			os.Exit(1)
-		}
+			var fileConfig e2e.TestRunnerConfig
+			if err := yaml.Unmarshal(data, &fileConfig); err != nil {
+				fmt.Printf("--- ERROR: Failed to parse config file: %v\n", err)
+				os.Exit(1)
+			}
 
-		// Apply config values only if not set via flags
-		if config.Dockerfile == defaultDockerfile && fileConfig.Dockerfile != "" {
-			config.Dockerfile = fileConfig.Dockerfile
-		}
-		if len(config.TestAssets) == 0 && len(fileConfig.TestAssets) > 0 {
-			config.TestAssets = fileConfig.TestAssets
-		}
-		if config.BuildTags == defaultBuildTags && fileConfig.BuildTags != "" {
-			config.BuildTags = fileConfig.BuildTags
-		}
-		if len(config.DockerRunArgs) == 0 && len(fileConfig.DockerRunArgs) > 0 {
-			config.DockerRunArgs = fileConfig.DockerRunArgs
-		}
-		if config.Verbosity == 0 && fileConfig.Verbosity > 0 {
-			config.Verbosity = fileConfig.Verbosity
-		}
-		if !config.NoFastFail && fileConfig.NoFastFail {
-			config.NoFastFail = fileConfig.NoFastFail
-		}
-		if !config.NoParallel && fileConfig.NoParallel {
-			config.NoParallel = fileConfig.NoParallel
-		}
-		if config.Parallelism == defaultParallelism && fileConfig.Parallelism > 0 {
-			config.Parallelism = fileConfig.Parallelism
+			// Apply config values only if not set via flags
+			if config.Dockerfile == defaultDockerfile && fileConfig.Dockerfile != "" {
+				config.Dockerfile = fileConfig.Dockerfile
+			}
+			if len(config.TestAssets) == 0 && len(fileConfig.TestAssets) > 0 {
+				config.TestAssets = fileConfig.TestAssets
+			}
+			if config.BuildTags == defaultBuildTags && fileConfig.BuildTags != "" {
+				config.BuildTags = fileConfig.BuildTags
+			}
+			if len(config.DockerRunArgs) == 0 && len(fileConfig.DockerRunArgs) > 0 {
+				config.DockerRunArgs = fileConfig.DockerRunArgs
+			}
+			if config.Verbosity == 0 && fileConfig.Verbosity > 0 {
+				config.Verbosity = fileConfig.Verbosity
+			}
+			if !config.NoFastFail && fileConfig.NoFastFail {
+				config.NoFastFail = fileConfig.NoFastFail
+			}
+			if !config.NoParallel && fileConfig.NoParallel {
+				config.NoParallel = fileConfig.NoParallel
+			}
+			if config.Parallelism == defaultParallelism && fileConfig.Parallelism > 0 {
+				config.Parallelism = fileConfig.Parallelism
+			}
 		}
 	}
 

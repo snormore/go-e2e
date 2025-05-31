@@ -24,4 +24,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: go tool go-e2e -v
         working-directory: example
-      - run: go run ./cmd/go-e2e/main.go -test-dir=example -v
+      - run: go run ./cmd/go-e2e/main.go example -v

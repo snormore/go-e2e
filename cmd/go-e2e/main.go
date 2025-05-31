@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/snormore/go-e2e"
 	"github.com/spf13/cobra"
@@ -35,13 +34,13 @@ func main() {
 			runner, err := e2e.NewTestRunner(
 				e2e.WithTestDir(testDir),
 				e2e.WithDockerfile(dockerfile),
-				e2e.WithTestAssets(strings.Join(testAssets, ",")),
+				e2e.WithTestAssets(testAssets),
 				e2e.WithVerbose(verbose),
 				e2e.WithNoFastFail(noFastFail),
 				e2e.WithNoParallel(noParallel),
 				e2e.WithParallelism(parallelism),
 				e2e.WithBuildTags(buildTags),
-				e2e.WithDockerRunArgs(strings.Join(dockerRunArgs, " ")),
+				e2e.WithDockerRunArgs(dockerRunArgs),
 			)
 			if err != nil {
 				return err
@@ -58,13 +57,13 @@ func main() {
 	// TODO: Support an e2e.yaml config file for all of this.
 
 	rootCmd.Flags().StringVarP(&dockerfile, "dockerfile", "f", "Dockerfile", "Path to the Dockerfile to use to run the tests")
-	rootCmd.Flags().StringSliceVarP(&testAssets, "test-assets", "a", nil, "Test assets to copy from the test directory")
+	rootCmd.Flags().StringArrayVar(&testAssets, "test-asset", []string{}, "Test assets to copy from the test directory. You can use this multiple times to add multiple assets.")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose test output")
 	rootCmd.Flags().BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails")
 	rootCmd.Flags().BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel")
 	rootCmd.Flags().IntVarP(&parallelism, "parallelism", "p", runtime.NumCPU(), "Number of tests to run in parallel")
 	rootCmd.Flags().StringVar(&buildTags, "build-tags", "e2e", "Build tags to use when building the test binary")
-	rootCmd.Flags().StringSliceVar(&dockerRunArgs, "docker-run-args", nil, "Arguments to pass to the docker run command when running the tests")
+	rootCmd.Flags().StringArrayVar(&dockerRunArgs, "docker-run-arg", []string{}, "Arguments to pass to the docker run command when running the tests. You can use this multiple times to add multiple arguments.")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Printf("--- ERROR: %v\n", err)

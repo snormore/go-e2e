@@ -78,9 +78,9 @@ func WithDockerfile(dockerfile string) Option {
 	}
 }
 
-func WithTestAssets(testAssets string) Option {
+func WithTestAssets(testAssets []string) Option {
 	return func(r *TestRunner) {
-		r.testAssets = strings.Split(testAssets, ",")
+		r.testAssets = testAssets
 	}
 }
 
@@ -114,9 +114,9 @@ func WithBuildTags(buildTags string) Option {
 	}
 }
 
-func WithDockerRunArgs(dockerRunArgs string) Option {
+func WithDockerRunArgs(dockerRunArgs []string) Option {
 	return func(r *TestRunner) {
-		r.dockerRunArgs = strings.Split(dockerRunArgs, " ")
+		r.dockerRunArgs = dockerRunArgs
 	}
 }
 
@@ -190,7 +190,7 @@ func (r *TestRunner) buildTestBinary() error {
 	buildCmd.Dir = r.testDir
 	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
 	if r.verbose {
-		fmt.Printf("--- DEBUG: Running %s\n", strings.Join(buildCmd.Args, " "))
+		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(buildCmd.Args, " "))
 	}
 	output, err := buildCmd.CombinedOutput()
 	if err != nil {
@@ -348,11 +348,18 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 
 	args := []string{"run", "--rm",
 		"--name", sanitizeContainerName(test)}
-	args = append(args, r.dockerRunArgs...)
+	if len(r.dockerRunArgs) > 0 {
+		for _, arg := range r.dockerRunArgs {
+			args = append(args, strings.Fields(arg)...)
+		}
+	}
 	args = append(args, containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
+	if r.verbose {
+		args = append(args, "-test.v")
+	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	if r.verbose {
-		fmt.Printf("--- DEBUG: Running %s\n", strings.Join(cmd.Args, " "))
+		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(cmd.Args, " "))
 	}
 	cmd.Dir = r.tmpDir
 

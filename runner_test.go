@@ -10,7 +10,7 @@ func TestTestRunner(t *testing.T) {
 		WithDockerfile("Dockerfile"),
 		WithBuildTags("e2e"),
 		WithParallelism(1),
-		WithVerbose(true),
+		WithVerbosity(2),
 	)
 	if err != nil {
 		t.Fatalf("failed to create test runner: %v", err)

@@ -32,7 +32,7 @@ type TestRunner struct {
 	noFastFail    bool
 	noParallel    bool
 	parallelism   int
-	verbose       bool
+	verbosity     int
 	tmpDir        string
 	tmpAssetsDir  string
 	tmpBinDir     string
@@ -102,9 +102,9 @@ func WithParallelism(parallelism int) Option {
 	}
 }
 
-func WithVerbose(verbose bool) Option {
+func WithVerbosity(verbosity int) Option {
 	return func(r *TestRunner) {
-		r.verbose = verbose
+		r.verbosity = verbosity
 	}
 }
 
@@ -158,6 +158,10 @@ func (r *TestRunner) Setup() error {
 		return fmt.Errorf("failed to get tests to run: %v", err)
 	}
 
+	if r.verbosity > 0 {
+		fmt.Printf("--- INFO: Running with verbosity %d\n", r.verbosity)
+	}
+
 	return nil
 }
 
@@ -172,7 +176,7 @@ func (r *TestRunner) copyAssets() error {
 			continue
 		}
 		assetPath := r.testDir + "/" + asset
-		if r.verbose {
+		if r.verbosity > 1 {
 			fmt.Printf("--- DEBUG: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
 		}
 		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.tmpAssetsDir, asset)).Run(); err != nil {
@@ -183,17 +187,18 @@ func (r *TestRunner) copyAssets() error {
 }
 
 func (r *TestRunner) buildTestBinary() error {
-	if r.verbose {
+	if r.verbosity > 1 {
 		fmt.Printf("--- DEBUG: Building test binary in %s\n", r.tmpBinDir)
 	}
 	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-test"), "."}
 	if r.buildTags != "" {
+		// TODO: Make sure this is working.
 		args = append(args, "-tags", r.buildTags)
 	}
 	buildCmd := exec.Command("go", args...)
 	buildCmd.Dir = r.testDir
 	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
-	if r.verbose {
+	if r.verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(buildCmd.Args, " "))
 	}
 	output, err := buildCmd.CombinedOutput()
@@ -358,17 +363,17 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 		}
 	}
 	args = append(args, containerBuildImage, "-test.run", fmt.Sprintf("^%s$", test))
-	if r.verbose {
+	if r.verbosity > 0 {
 		args = append(args, "-test.v")
 	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	if r.verbose {
+	if r.verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(cmd.Args, " "))
 	}
 	cmd.Dir = r.tmpDir
 
 	var output bytes.Buffer
-	if r.verbose {
+	if r.verbosity > 0 {
 		cmd.Stdout = io.MultiWriter(os.Stdout, &output)
 		cmd.Stderr = io.MultiWriter(os.Stderr, &output)
 	} else {
@@ -409,7 +414,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 		r.testTimings[test] = time.Since(start)
 		r.mu.Unlock()
 		if test == r.failedTests[0] {
-			if r.verbose {
+			if r.verbosity > 0 {
 				fmt.Printf("--- FAIL: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 			} else {
 				fmt.Printf("--- FAIL: %s (%.2fs)\n%s", test, r.testTimings[test].Seconds(), output.String())

@@ -25,7 +25,19 @@ func main() {
 	flag.Parse()
 
 	// Initialize the test runner.
-	runner := e2e.NewTestRunner(*testDir, *dockerfile, *testAssets, *verbose, *noFastFail, *noParallel, *parallelism, *buildTags)
+	runner, err := e2e.NewTestRunner(
+		e2e.WithTestDir(*testDir),
+		e2e.WithDockerfile(*dockerfile),
+		e2e.WithTestAssets(*testAssets),
+		e2e.WithVerbose(*verbose),
+		e2e.WithNoFastFail(*noFastFail),
+		e2e.WithNoParallel(*noParallel),
+		e2e.WithParallelism(*parallelism),
+		e2e.WithBuildTags(*buildTags),
+	)
+	if err != nil {
+		exitWithError(err)
+	}
 	if err := runner.Setup(); err != nil {
 		exitWithError(err)
 	}

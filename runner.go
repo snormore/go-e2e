@@ -21,8 +21,6 @@ const (
 	tmpDirPrefix        = "e2e-test-runner"
 )
 
-// TODO: Use slog for logging.
-
 type TestRunner struct {
 	testDir      string
 	dockerfile   string
@@ -35,18 +33,79 @@ type TestRunner struct {
 	tmpAssetsDir string
 	tmpBinDir    string
 	buildTags    string
+
+	mu              sync.Mutex
+	failedTests     []string
+	passedTests     []string
+	incompleteTests []string
+	testTimings     map[string]time.Duration
+	testsToRun      []string
 }
 
-func NewTestRunner(testDir, dockerfile, testAssets string, verbose, noFastFail, noParallel bool, parallelism int, buildTags string) *TestRunner {
-	return &TestRunner{
-		testDir:     testDir,
-		dockerfile:  dockerfile,
-		testAssets:  strings.Split(testAssets, ","),
-		noFastFail:  noFastFail,
-		noParallel:  noParallel,
-		parallelism: parallelism,
-		verbose:     verbose,
-		buildTags:   buildTags,
+func NewTestRunner(options ...Option) (*TestRunner, error) {
+	runner := &TestRunner{}
+	for _, option := range options {
+		option(runner)
+	}
+
+	// Validate required options.
+	if runner.testDir == "" {
+		return nil, fmt.Errorf("testDir is required")
+	}
+	if runner.dockerfile == "" {
+		return nil, fmt.Errorf("dockerfile is required")
+	}
+
+	return runner, nil
+}
+
+type Option func(*TestRunner)
+
+func WithTestDir(testDir string) Option {
+	return func(r *TestRunner) {
+		r.testDir = testDir
+	}
+}
+
+func WithDockerfile(dockerfile string) Option {
+	return func(r *TestRunner) {
+		r.dockerfile = dockerfile
+	}
+}
+
+func WithTestAssets(testAssets string) Option {
+	return func(r *TestRunner) {
+		r.testAssets = strings.Split(testAssets, ",")
+	}
+}
+
+func WithNoFastFail(noFastFail bool) Option {
+	return func(r *TestRunner) {
+		r.noFastFail = noFastFail
+	}
+}
+
+func WithNoParallel(noParallel bool) Option {
+	return func(r *TestRunner) {
+		r.noParallel = noParallel
+	}
+}
+
+func WithParallelism(parallelism int) Option {
+	return func(r *TestRunner) {
+		r.parallelism = parallelism
+	}
+}
+
+func WithVerbose(verbose bool) Option {
+	return func(r *TestRunner) {
+		r.verbose = verbose
+	}
+}
+
+func WithBuildTags(buildTags string) Option {
+	return func(r *TestRunner) {
+		r.buildTags = buildTags
 	}
 }
 
@@ -82,11 +141,17 @@ func (r *TestRunner) Setup() error {
 		return fmt.Errorf("failed to build docker image: %v", err)
 	}
 
+	// Get tests to run.
+	r.testsToRun, err = r.getTestsToRun()
+	if err != nil {
+		return fmt.Errorf("failed to get tests to run: %v", err)
+	}
+
 	return nil
 }
 
-func (r *TestRunner) Cleanup() error {
-	return os.RemoveAll(r.tmpDir)
+func (r *TestRunner) Cleanup() {
+	os.RemoveAll(r.tmpDir)
 }
 
 func (r *TestRunner) copyAssets() error {
@@ -173,39 +238,31 @@ func (r *TestRunner) RunTests() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	testsToRun, err := r.getTestsToRun()
-	if err != nil {
-		return fmt.Errorf("failed to get tests to run: %v", err)
-	}
-
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var failedTests []string
-	var passedTests []string
-	var incompleteTests []string
-	var testTimings = make(map[string]time.Duration)
+	r.testTimings = make(map[string]time.Duration)
 
 	suiteStart := time.Now()
-	if len(testsToRun) == 1 {
+	switch len(r.testsToRun) {
+	case 1:
 		fmt.Printf("--- INFO: Running 1 test...\n")
-	} else if len(testsToRun) > 1 {
-		fmt.Printf("--- INFO: Running %d tests %s...\n", len(testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.parallelism)}[r.noParallel])
-	} else {
+	case 0:
 		fmt.Printf("--- INFO: No tests to run.\n")
+	default:
+		fmt.Printf("--- INFO: Running %d tests %s...\n", len(r.testsToRun), map[bool]string{true: "sequentially", false: fmt.Sprintf("in parallel (max %d)", r.parallelism)}[r.noParallel])
 	}
 
 	sem := make(chan struct{}, r.parallelism)
 
-	for _, test := range testsToRun {
+	for _, test := range r.testsToRun {
 		if r.noParallel {
-			r.runTest(test, &mu, &failedTests, &passedTests, &incompleteTests, testTimings, !r.noFastFail, ctx, cancel, testsToRun)
+			r.runTest(ctx, test, cancel)
 		} else {
 			wg.Add(1)
 			go func(test string) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				r.runTest(test, &mu, &failedTests, &passedTests, &incompleteTests, testTimings, !r.noFastFail, ctx, cancel, testsToRun)
+				r.runTest(ctx, test, cancel)
 			}(test)
 		}
 	}
@@ -215,12 +272,12 @@ func (r *TestRunner) RunTests() error {
 	}
 	suiteDuration := time.Since(suiteStart)
 
-	r.printSummary(suiteDuration, failedTests, passedTests, incompleteTests, testTimings)
+	r.printSummary(suiteDuration)
 
 	return nil
 }
 
-func (r *TestRunner) runTest(test string, mu *sync.Mutex, failedTests, passedTests, incompleteTests *[]string, testTimings map[string]time.Duration, failFast bool, ctx context.Context, cancel context.CancelFunc, testsToRun []string) {
+func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.CancelFunc) {
 	fmt.Printf("=== RUN: %s\n", test)
 	start := time.Now()
 
@@ -241,72 +298,72 @@ func (r *TestRunner) runTest(test string, mu *sync.Mutex, failedTests, passedTes
 	}
 
 	if err := cmd.Run(); err != nil {
-		mu.Lock()
-		if len(*failedTests) == 0 {
-			if failFast {
+		r.mu.Lock()
+		if len(r.failedTests) == 0 {
+			if !r.noFastFail {
 				cancel()
-				for _, t := range testsToRun {
+				for _, t := range r.testsToRun {
 					t = strings.TrimSpace(t)
 					if t == "" || t == test {
 						continue
 					}
 					ran := false
-					for _, pt := range *passedTests {
+					for _, pt := range r.passedTests {
 						if pt == t {
 							ran = true
 							break
 						}
 					}
-					for _, ft := range *failedTests {
+					for _, ft := range r.failedTests {
 						if ft == t {
 							ran = true
 							break
 						}
 					}
 					if !ran {
-						*incompleteTests = append(*incompleteTests, t)
+						r.incompleteTests = append(r.incompleteTests, t)
 					}
 				}
 			}
 		}
-		*failedTests = append(*failedTests, test)
-		testTimings[test] = time.Since(start)
-		mu.Unlock()
-		if test == (*failedTests)[0] {
+		r.failedTests = append(r.failedTests, test)
+		r.testTimings[test] = time.Since(start)
+		r.mu.Unlock()
+		if test == r.failedTests[0] {
 			if r.verbose {
-				fmt.Printf("--- FAIL: %s (%.2fs)\n", test, testTimings[test].Seconds())
+				fmt.Printf("--- FAIL: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 			} else {
-				fmt.Printf("--- FAIL: %s (%.2fs)\n%s", test, testTimings[test].Seconds(), output.String())
+				fmt.Printf("--- FAIL: %s (%.2fs)\n%s", test, r.testTimings[test].Seconds(), output.String())
 			}
 		}
 	} else {
-		mu.Lock()
-		*passedTests = append(*passedTests, test)
-		testTimings[test] = time.Since(start)
-		mu.Unlock()
-		fmt.Printf("--- PASS: %s (%.2fs)\n", test, testTimings[test].Seconds())
+		r.mu.Lock()
+		r.passedTests = append(r.passedTests, test)
+		r.testTimings[test] = time.Since(start)
+		r.mu.Unlock()
+		fmt.Printf("--- PASS: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 	}
 }
 
-func (r *TestRunner) printSummary(suiteDuration time.Duration, failedTests, passedTests, incompleteTests []string, testTimings map[string]time.Duration) {
+func (r *TestRunner) printSummary(suiteDuration time.Duration) {
 	fmt.Println()
-	if len(failedTests) == 0 {
+	if len(r.failedTests) == 0 {
 		fmt.Printf("=== SUMMARY: PASS (%.2fs)\n", suiteDuration.Seconds())
-		for _, test := range passedTests {
-			fmt.Printf("PASS: %s (%.2fs)\n", test, testTimings[test].Seconds())
+		for _, test := range r.passedTests {
+			fmt.Printf("PASS: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 		}
 	} else {
 		fmt.Printf("=== SUMMARY: FAIL (%.2fs)\n", suiteDuration.Seconds())
-		for _, test := range passedTests {
-			fmt.Printf("PASS: %s (%.2fs)\n", test, testTimings[test].Seconds())
+		for _, test := range r.passedTests {
+			fmt.Printf("PASS: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 		}
 		if !r.noFastFail {
-			for _, test := range failedTests {
-				fmt.Printf("FAIL: %s (%.2fs)\n", test, testTimings[test].Seconds())
+			for _, test := range r.failedTests {
+				fmt.Printf("FAIL: %s (%.2fs)\n", test, r.testTimings[test].Seconds())
 			}
 		} else {
-			fmt.Printf("FAIL: %s (%.2fs)\n", failedTests[0], testTimings[failedTests[0]].Seconds())
-			for _, test := range incompleteTests {
+			fmt.Printf("FAIL: %s (%.2fs)\n", r.failedTests[0], r.testTimings[r.failedTests[0]].Seconds())
+			for _, test := range r.incompleteTests {
 				fmt.Printf("STOP: %s\n", test)
 			}
 		}

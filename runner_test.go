@@ -5,7 +5,10 @@ import (
 )
 
 func TestTestRunner(t *testing.T) {
-	runner := NewTestRunner("example", "Dockerfile", "", false, false, false, 1, "e2e")
+	runner, err := NewTestRunner(WithTestDir("example"), WithDockerfile("Dockerfile"), WithTestAssets(""), WithNoFastFail(false), WithNoParallel(false), WithParallelism(1), WithBuildTags("e2e"))
+	if err != nil {
+		t.Fatalf("failed to create test runner: %v", err)
+	}
 
 	if err := runner.Setup(); err != nil {
 		t.Fatalf("failed to setup test runner: %v", err)

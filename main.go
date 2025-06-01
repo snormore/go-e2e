@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/codeglyph/go-dotignore"
 	e2e "github.com/snormore/go-e2e/lib"
 	"gopkg.in/yaml.v3"
 )
@@ -60,58 +59,13 @@ func run() error {
 	config.Parallelism = parallelism
 	config.TestPattern = testPattern
 
-	// If the .gitignore file exists, read the simple entries from it.
-	var ignoreMatcher *dotignore.PatternMatcher
-	if _, err := os.Stat(".gitignore"); err == nil {
-		ignoreMatcher, err = dotignore.NewPatternMatcherFromFile(".gitignore")
-		if err != nil {
-			return fmt.Errorf("failed to parse .gitignore file: %v", err)
-		}
-	}
-
 	// Find all e2e.yaml files recursively
 	if verbosity > 2 {
 		fmt.Printf("--- INFO: Finding e2e.yaml files recursively\n")
 	}
-	var configFiles []string
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
 
-		// Ignore hidden files and directories (like .github, .git, etc).
-		if strings.HasPrefix(info.Name(), ".") {
-			return nil
-		}
-
-		// Check if the file is ignored by the .gitignore file.
-		if ignoreMatcher != nil {
-			isIgnored, err := ignoreMatcher.Matches(path)
-			if err != nil {
-				return fmt.Errorf("failed to check if file is ignored: %v", err)
-			}
-			if isIgnored {
-				if info.IsDir() {
-					if verbosity > 2 {
-						fmt.Printf("--- INFO: Ignoring directory %s because it matches a .gitignore entry\n", path)
-					}
-					return filepath.SkipDir
-				}
-				if verbosity > 2 {
-					fmt.Printf("--- INFO: Ignoring file %s because it matches a .gitignore entry\n", path)
-				}
-				return nil
-			}
-		}
-
-		if !info.IsDir() && info.Name() == filepath.Base(configFile) {
-			if verbosity > 2 {
-				fmt.Printf("--- INFO: Found e2e.yaml file: %s\n", path)
-			}
-			configFiles = append(configFiles, path)
-		}
-		return nil
-	})
+	walker := e2e.NewFileWalker(configFile, verbosity)
+	configFiles, err := walker.FindConfigFiles()
 	if err != nil {
 		return fmt.Errorf("failed to find e2e config files: %v", err)
 	}

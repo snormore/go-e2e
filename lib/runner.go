@@ -96,14 +96,18 @@ func (r *Runner) buildDockerImage() error {
 		return fmt.Errorf("failed to find go.mod: %v", err)
 	}
 	goModDir := filepath.Dir(goModPath)
-	fmt.Printf("--- DEBUG: go.mod directory: %s\n", goModDir)
+	if r.config.Verbosity > 2 {
+		fmt.Printf("--- DEBUG: go.mod directory: %s\n", goModDir)
+	}
 
 	// Print current working directory.
 	wd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current working directory: %v", err)
 	}
-	fmt.Printf("--- DEBUG: Current working directory: %s\n", wd)
+	if r.config.Verbosity > 2 {
+		fmt.Printf("--- DEBUG: Current working directory: %s\n", wd)
+	}
 
 	// Build the docker image.
 	fmt.Printf("--- INFO: Building docker image %s (this may take a while)...\n", r.containerBuildImage)

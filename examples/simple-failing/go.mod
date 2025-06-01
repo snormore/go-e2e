@@ -7,6 +7,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/snormore/go-e2e => ../
+replace github.com/snormore/go-e2e => ../../
 
 tool github.com/snormore/go-e2e

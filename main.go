@@ -64,7 +64,7 @@ func run() error {
 		fmt.Printf("--- INFO: Finding e2e.yaml files recursively\n")
 	}
 
-	walker := e2e.NewFileWalker(configFile, verbosity)
+	walker := e2e.NewFileWalker(configFile, verbosity, ".")
 	configFiles, err := walker.FindConfigFiles()
 	if err != nil {
 		return fmt.Errorf("failed to find e2e config files: %v", err)

@@ -42,18 +42,8 @@ func TestFileWalker(t *testing.T) {
 		}
 	}
 
-	// Change to temp directory
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	defer os.Chdir(oldDir)
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("failed to change dir: %v", err)
-	}
-
 	// Test finding config files
-	walker := e2e.NewFileWalker("e2e.yaml", 0)
+	walker := e2e.NewFileWalker("e2e.yaml", 0, tmpDir)
 	files, err := walker.FindConfigFiles()
 	if err != nil {
 		t.Fatalf("failed to find config files: %v", err)
@@ -84,17 +74,7 @@ func TestFileWalkerWithNoConfigFiles(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Change to temp directory
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	defer os.Chdir(oldDir)
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("failed to change dir: %v", err)
-	}
-
-	walker := e2e.NewFileWalker("e2e.yaml", 0)
+	walker := e2e.NewFileWalker("e2e.yaml", 0, tmpDir)
 	files, err := walker.FindConfigFiles()
 	if err != nil {
 		t.Fatalf("failed to find config files: %v", err)
@@ -118,17 +98,7 @@ func TestFileWalkerWithCustomConfigName(t *testing.T) {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	// Change to temp directory
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	defer os.Chdir(oldDir)
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("failed to change dir: %v", err)
-	}
-
-	walker := e2e.NewFileWalker(customConfig, 0)
+	walker := e2e.NewFileWalker(customConfig, 0, tmpDir)
 	files, err := walker.FindConfigFiles()
 	if err != nil {
 		t.Fatalf("failed to find config files: %v", err)

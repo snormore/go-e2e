@@ -238,6 +238,9 @@ func (r *Runner) RunTests() error {
 
 	r.printSummary(suiteDuration)
 
+	if len(r.failedTests) > 0 {
+		return fmt.Errorf("tests failed")
+	}
 	return nil
 }
 

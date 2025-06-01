@@ -22,11 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run from example should execute only example tests
+      - name: Run simple-passing example
         run: go tool go-e2e -vv
-        working-directory: example
-      - name: Run from root should execute recursively
-        run: go run main.go -vv
-      - name: Run from example should execute only example tests
-        run: go run ../main.go -vv
-        working-directory: example
+        working-directory: examples/simple-passing
+      - name: Run simple-failing example
+        run: |
+          if go tool go-e2e -vv; then
+            echo "Expected test to fail but it passed"
+            exit 1
+          fi
+        working-directory: examples/simple-failing

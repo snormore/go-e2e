@@ -14,24 +14,26 @@ import (
 type FileWalker struct {
 	fileName  string
 	verbosity int
+	baseDir   string
 }
 
-func NewFileWalker(fileName string, verbosity int) *FileWalker {
+func NewFileWalker(fileName string, verbosity int, baseDir string) *FileWalker {
 	return &FileWalker{
 		fileName:  fileName,
 		verbosity: verbosity,
+		baseDir:   baseDir,
 	}
 }
 
 func (w *FileWalker) FindConfigFiles() ([]string, error) {
 	var configFiles []string
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(w.baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		// Skip hidden files/dirs except the root directory
-		if strings.HasPrefix(info.Name(), ".") && path != "." {
+		if strings.HasPrefix(info.Name(), ".") && path != w.baseDir {
 			if w.verbosity > 2 {
 				fmt.Printf("--- INFO: Ignoring hidden file or directory: %s\n", path)
 			}
@@ -59,7 +61,11 @@ func (w *FileWalker) FindConfigFiles() ([]string, error) {
 			if w.verbosity > 2 {
 				fmt.Printf("--- INFO: Found e2e.yaml file: %s\n", path)
 			}
-			configFiles = append(configFiles, path)
+			relPath, err := filepath.Rel(w.baseDir, path)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %v", err)
+			}
+			configFiles = append(configFiles, relPath)
 		}
 		return nil
 	})

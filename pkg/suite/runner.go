@@ -27,10 +27,11 @@ type RunnerConfig struct {
 	Dockerfile    string   `yaml:"dockerfile"`
 	DockerRunArgs []string `yaml:"docker-run-args"`
 
-	Verbosity   int  `yaml:"verbosity"`
-	NoFastFail  bool `yaml:"no-fast-fail"`
-	NoParallel  bool `yaml:"no-parallel"`
-	Parallelism int  `yaml:"parallelism"`
+	Verbosity   int    `yaml:"verbosity"`
+	NoFastFail  bool   `yaml:"no-fast-fail"`
+	NoParallel  bool   `yaml:"no-parallel"`
+	Parallelism int    `yaml:"parallelism"`
+	TestPattern string `yaml:"test-pattern"`
 }
 
 type Runner struct {
@@ -134,6 +135,20 @@ func (r *Runner) buildDockerImage() error {
 func (r *Runner) getTestsToRun() ([]string, error) {
 	var tests []string
 	fset := token.NewFileSet()
+
+	// Split pattern by slashes if present.
+	// Match behaviour in https://pkg.go.dev/cmd/go/internal/test
+	var patterns []*regexp.Regexp
+	if r.config.TestPattern != "" {
+		for _, p := range strings.Split(r.config.TestPattern, "/") {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				return nil, fmt.Errorf("invalid test pattern: %v", err)
+			}
+			patterns = append(patterns, re)
+		}
+	}
+
 	err := filepath.Walk(r.config.TestDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -151,7 +166,23 @@ func (r *Runner) getTestsToRun() ([]string, error) {
 					continue
 				}
 				if strings.HasPrefix(funcDecl.Name.Name, "Test") {
-					tests = append(tests, funcDecl.Name.Name)
+					// If no pattern, run all tests
+					if len(patterns) == 0 {
+						tests = append(tests, funcDecl.Name.Name)
+						continue
+					}
+
+					// Check if test name matches all parts of the pattern
+					matches := true
+					for _, re := range patterns {
+						if !re.MatchString(funcDecl.Name.Name) {
+							matches = false
+							break
+						}
+					}
+					if matches {
+						tests = append(tests, funcDecl.Name.Name)
+					}
 				}
 			}
 		}

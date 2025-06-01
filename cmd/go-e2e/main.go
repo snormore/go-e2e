@@ -22,6 +22,7 @@ func main() {
 	var noFastFail bool
 	var noParallel bool
 	var parallelism int
+	var testPattern string
 
 	config := suite.RunnerConfig{}
 
@@ -50,6 +51,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails")
 	rootCmd.Flags().BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel")
 	rootCmd.Flags().IntVarP(&parallelism, "parallelism", "p", defaultParallelism, "Number of tests to run in parallel")
+	rootCmd.Flags().StringVar(&testPattern, "run", "", "Run only tests matching the pattern")
 
 	// Parse flags first to get config file path
 	if err := rootCmd.ParseFlags(os.Args[1:]); err != nil {
@@ -62,6 +64,7 @@ func main() {
 	config.NoFastFail = noFastFail
 	config.NoParallel = noParallel
 	config.Parallelism = parallelism
+	config.TestPattern = testPattern
 
 	// Load config if specified
 	if configFile != "" {

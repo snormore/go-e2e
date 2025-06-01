@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/codeglyph/go-dotignore"
-	"github.com/snormore/go-e2e/pkg/suite"
+	e2e "github.com/snormore/go-e2e/lib"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,7 +32,7 @@ func run() error {
 	var parallelism int
 	var testPattern string
 
-	config := suite.RunnerConfig{}
+	config := e2e.RunnerConfig{}
 
 	preprocessArgsForVerbosity()
 
@@ -150,7 +150,7 @@ func run() error {
 		// The test dir for this run is the directory of the config file.
 		config.TestDir = configDir
 
-		runner, err := suite.NewRunner(config)
+		runner, err := e2e.NewRunner(config)
 		if err != nil {
 			return err
 		}

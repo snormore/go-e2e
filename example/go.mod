@@ -10,4 +10,4 @@ require (
 
 replace github.com/snormore/go-e2e => ../
 
-tool github.com/snormore/go-e2e/cmd/go-e2e
+tool github.com/snormore/go-e2e

@@ -1,14 +1,14 @@
-package suite_test
+package e2e_test
 
 import (
 	"testing"
 
-	"github.com/snormore/go-e2e/pkg/suite"
+	e2e "github.com/snormore/go-e2e/lib"
 )
 
 func TestSuiteRunner(t *testing.T) {
-	runner, err := suite.NewRunner(suite.RunnerConfig{
-		TestDir:     "../../example",
+	runner, err := e2e.NewRunner(e2e.RunnerConfig{
+		TestDir:     "../example",
 		Dockerfile:  "Dockerfile",
 		Parallelism: 1,
 		Verbosity:   2,

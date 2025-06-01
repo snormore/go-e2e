@@ -17,7 +17,7 @@ build:
 
 .PHONY: run-help
 run-help:
-	go run ./cmd/go-e2e/main.go --help
+	go run main.go --help
 
 .PHONY: run-example
 run-example:

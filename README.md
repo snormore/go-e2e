@@ -84,6 +84,25 @@ go tool go-e2e
         Verbosity level (default: 0)
 ```
 
+### Example
+
+```
+$ go tool go-e2e
+
+=== Running tests from e2e.yaml ===
+--- INFO: Building docker image e2e-test-runner-d4c6:dev (this may take a while)...
+--- OK: docker build (0.43s)
+--- INFO: Running 2 tests in parallel (max 10)...
+=== RUN: TestExample2
+=== RUN: TestExample1
+--- PASS: TestExample1 (0.19s)
+--- PASS: TestExample2 (0.20s)
+
+=== SUMMARY: PASS (0.20s)
+PASS: TestExample1 (0.19s)
+PASS: TestExample2 (0.20s)
+```
+
 ## License
 
 [MIT License](LICENSE)

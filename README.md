@@ -65,11 +65,24 @@ go tool go-e2e
 
 ## Command Line Options
 
-- `-f`: Path to config file (default: e2e.yaml)
-- `-v`, `-vv`, `-vvv`: Verbosity level
-- `--no-fast-fail`: Run all tests even if one fails
-- `--no-parallel`: Run tests sequentially
-- `-p`, `--parallelism`: Number of tests to run in parallel (default: number of CPUs)
+```
+  -f string
+        Config filename to search for recursively (default: e2e.yaml) (default "e2e.yaml")
+  -help
+        Show help
+  -no-fast-fail
+        Run all tests even if one fails (default: false)
+  -no-parallel
+        Run tests sequentially instead of in parallel (default: false)
+  -p int
+        Number of tests to run in parallel (default: number of CPUs) (default 10)
+  -parallelism int
+        Number of tests to run in parallel (default: number of CPUs) (default 10)
+  -run string
+        Run only tests matching the pattern (default: all tests)
+  -verbose int
+        Verbosity level (default: 0)
+```
 
 ## License
 

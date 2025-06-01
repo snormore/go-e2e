@@ -35,13 +35,13 @@ func run() error {
 
 	preprocessArgsForVerbosity()
 
-	flag.StringVar(&configFile, "f", "e2e.yaml", "Path to config file (YAML)")
-	flag.IntVar(&verbosity, "verbose", 0, "Verbosity level")
-	flag.BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails")
-	flag.BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel")
-	flag.IntVar(&parallelism, "parallelism", defaultParallelism, "Number of tests to run in parallel")
-	flag.IntVar(&parallelism, "p", defaultParallelism, "Number of tests to run in parallel")
-	flag.StringVar(&testPattern, "run", "", "Run only tests matching the pattern")
+	flag.StringVar(&configFile, "f", "e2e.yaml", "Config filename to search for recursively (default: e2e.yaml)")
+	flag.IntVar(&verbosity, "verbose", 0, "Verbosity level (default: 0)")
+	flag.BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails (default: false)")
+	flag.BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel (default: false)")
+	flag.IntVar(&parallelism, "parallelism", defaultParallelism, "Number of tests to run in parallel (default: number of CPUs)")
+	flag.IntVar(&parallelism, "p", defaultParallelism, "Number of tests to run in parallel (default: number of CPUs)")
+	flag.StringVar(&testPattern, "run", "", "Run only tests matching the pattern (default: all tests)")
 	help := flag.Bool("help", false, "Show help")
 
 	flag.Parse()

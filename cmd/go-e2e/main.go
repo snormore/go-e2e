@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/snormore/go-e2e/pkg/suite"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,6 +17,13 @@ var (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Printf("--- ERROR: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	var configFile string
 	var verbosity int
 	var noFastFail bool
@@ -28,38 +35,24 @@ func main() {
 
 	preprocessArgsForVerbosity()
 
-	rootCmd := &cobra.Command{
-		Use:   "go-e2e",
-		Short: "Run containerized end-to-end tests",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			runner, err := suite.NewRunner(config)
-			if err != nil {
-				return err
-			}
-			if err := runner.Setup(); err != nil {
-				return err
-			}
-			defer runner.Cleanup()
+	flag.StringVar(&configFile, "f", "e2e.yaml", "Path to config file (YAML)")
+	flag.IntVar(&verbosity, "verbose", 0, "Verbosity level")
+	flag.BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails")
+	flag.BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel")
+	flag.IntVar(&parallelism, "parallelism", defaultParallelism, "Number of tests to run in parallel")
+	flag.IntVar(&parallelism, "p", defaultParallelism, "Number of tests to run in parallel")
+	flag.StringVar(&testPattern, "run", "", "Run only tests matching the pattern")
+	help := flag.Bool("help", false, "Show help")
 
-			return runner.RunTests()
-		},
+	flag.Parse()
+
+	// Show help if requested
+	if *help {
+		flag.Usage()
+		return nil
 	}
 
-	rootCmd.Flags().StringVarP(&configFile, "config", "f", "e2e.yaml", "Path to config file (YAML)")
-	rootCmd.Flags().CountVarP(&verbosity, "verbose", "v", "Verbosity level. Can be specified multiple times to increase verbosity.")
-	rootCmd.Flags().BoolVar(&noFastFail, "no-fast-fail", false, "Run all tests even if one fails")
-	rootCmd.Flags().BoolVar(&noParallel, "no-parallel", false, "Run tests sequentially instead of in parallel")
-	rootCmd.Flags().IntVarP(&parallelism, "parallelism", "p", defaultParallelism, "Number of tests to run in parallel")
-	rootCmd.Flags().StringVar(&testPattern, "run", "", "Run only tests matching the pattern")
-
-	// Parse flags first to get config file path
-	if err := rootCmd.ParseFlags(os.Args[1:]); err != nil {
-		fmt.Printf("--- ERROR: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set the flags-only config values.
+	// Set the flags-only config values
 	config.Verbosity = verbosity
 	config.NoFastFail = noFastFail
 	config.NoParallel = noParallel
@@ -68,49 +61,45 @@ func main() {
 
 	// Load config if specified
 	if configFile != "" {
-		// Check if the config file exists.
+		// Check if the config file exists
 		if _, err := os.Stat(configFile); os.IsNotExist(err) {
-			fmt.Printf("--- ERROR: Config file not found: %s\n", configFile)
-			os.Exit(1)
+			return fmt.Errorf("config file not found: %s", configFile)
 		}
 
-		// Get the absolute path of the config file.
+		// Get the absolute path of the config file
 		absConfigFile, err := filepath.Abs(configFile)
 		if err != nil {
-			fmt.Printf("--- ERROR: Failed to get absolute path of config file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to get absolute path of config file: %v", err)
 		}
 		fmt.Printf("--- INFO: Using config file: %s\n", absConfigFile)
 
-		// Read the config file.
+		// Read the config file
 		data, err := os.ReadFile(absConfigFile)
 		if err != nil {
-			fmt.Printf("--- ERROR: Failed to read config file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to read config file: %v", err)
 		}
 
-		// Parse the config file.
+		// Parse the config file
 		if err := yaml.Unmarshal(data, &config); err != nil {
-			fmt.Printf("--- ERROR: Failed to parse config file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to parse config file: %v", err)
 		}
 
-		// Update the given dockerfile path to be relative to the config file directory.
-		// TODO: Should we set a default here?
-		// if config.Dockerfile == "" {
-		// 	config.Dockerfile = "Dockerfile"
-		// }
 		if config.Dockerfile != "" {
 			configFileDir := filepath.Dir(absConfigFile)
 			config.Dockerfile = filepath.Join(configFileDir, config.Dockerfile)
-			fmt.Printf("--- DEBUG: Updating dockerfile path to be relative to config file directory: %s\n", config.Dockerfile)
 		}
 	}
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Printf("--- ERROR: %v\n", err)
-		os.Exit(1)
+	runner, err := suite.NewRunner(config)
+	if err != nil {
+		return err
 	}
+	if err := runner.Setup(); err != nil {
+		return err
+	}
+	defer runner.Cleanup()
+
+	return runner.RunTests()
 }
 
 func preprocessArgsForVerbosity() {

@@ -22,7 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: go tool go-e2e -vv
+      - name: Run from example should execute only example tests
+        run: go tool go-e2e -vv
         working-directory: example
-      - run: go run main.go -vv
+      - name: Run from root should execute recursively
+        run: go run ../main.go -vv
+      - name: Run from example should execute only example tests
+        run: go run main.go -vv
         working-directory: example

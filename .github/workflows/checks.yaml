@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: go tool go-e2e -v
+      - run: go tool go-e2e -vv
         working-directory: example
-      - run: go run ./cmd/go-e2e/main.go example -v
+      - run: go run ../cmd/go-e2e/main.go -vv
+        working-directory: example

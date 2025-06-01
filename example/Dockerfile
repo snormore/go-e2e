@@ -8,9 +8,9 @@ WORKDIR /work
 ARG TEST_BIN
 ARG TEST_ASSETS
 
-COPY $TEST_BIN /bin/run-test
+COPY $TEST_BIN /bin/run-tests
 COPY $TEST_ASSETS /work/
 
-ENTRYPOINT ["/bin/run-test"]
+ENTRYPOINT ["/bin/run-tests"]
 
 CMD ["-test.v"]

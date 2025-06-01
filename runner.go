@@ -30,10 +30,11 @@ type TestRunnerConfig struct {
 	TestAssets    []string `yaml:"test-assets"`
 	BuildTags     string   `yaml:"build-tags"`
 	DockerRunArgs []string `yaml:"docker-run-args"`
-	Verbosity     int      `yaml:"verbosity"`
-	NoFastFail    bool     `yaml:"no-fast-fail"`
-	NoParallel    bool     `yaml:"no-parallel"`
-	Parallelism   int      `yaml:"parallelism"`
+
+	Verbosity   int  `yaml:"verbosity"`
+	NoFastFail  bool `yaml:"no-fast-fail"`
+	NoParallel  bool `yaml:"no-parallel"`
+	Parallelism int  `yaml:"parallelism"`
 }
 
 type TestRunner struct {
@@ -86,7 +87,7 @@ func (r *TestRunner) Setup() error {
 		return fmt.Errorf("failed to create assets directory: %v", err)
 	}
 	if err := r.copyAssets(); err != nil {
-		return fmt.Errorf("failed to copy assets: %v", err)
+		return err
 	}
 
 	// Initialize the binary directory and build the test binary.
@@ -95,18 +96,18 @@ func (r *TestRunner) Setup() error {
 		return fmt.Errorf("failed to create bin directory: %v", err)
 	}
 	if err := r.buildTestBinary(); err != nil {
-		return fmt.Errorf("failed to build test binary: %v", err)
+		return err
 	}
 
 	// Build the docker image.
 	if err := r.buildDockerImage(); err != nil {
-		return fmt.Errorf("failed to build docker image: %v", err)
+		return err
 	}
 
 	// Get tests to run.
 	r.testsToRun, err = r.getTestsToRun()
 	if err != nil {
-		return fmt.Errorf("failed to get tests to run: %v", err)
+		return err
 	}
 
 	if r.config.Verbosity > 0 {
@@ -139,9 +140,9 @@ func (r *TestRunner) copyAssets() error {
 
 func (r *TestRunner) buildTestBinary() error {
 	if r.config.Verbosity > 1 {
-		fmt.Printf("--- DEBUG: Building test binary in %s\n", r.tmpBinDir)
+		fmt.Printf("--- DEBUG: Building test binary to %s\n", r.tmpBinDir)
 	}
-	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-test"), "."}
+	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-tests"), "."}
 	if r.config.BuildTags != "" {
 		args = append(args, "-tags", r.config.BuildTags)
 	}
@@ -173,7 +174,7 @@ func (r *TestRunner) buildDockerImage() error {
 	fmt.Printf("--- INFO: Building docker image %s (this may take a while)...\n", r.containerBuildImage)
 	start := time.Now()
 	buildDockerCmd := exec.Command("docker", "build",
-		"--build-arg", "TEST_BIN=bin/run-test",
+		"--build-arg", "TEST_BIN=bin/run-tests",
 		"--build-arg", "TEST_ASSETS=assets",
 		"-t", r.containerBuildImage,
 		"-f", tmpDockerfilePath,

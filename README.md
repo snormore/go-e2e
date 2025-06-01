@@ -17,9 +17,7 @@ A tool for running Go tests in isolated containers with parallel execution.
 Add to your `go.mod`:
 
 ```go.mod
-tool (
-    github.com/snormore/go-e2e
-)
+tool github.com/snormore/go-e2e
 ```
 
 Or install directly:

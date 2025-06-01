@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/codeglyph/go-dotignore"
 	"github.com/snormore/go-e2e/pkg/suite"
 	"gopkg.in/yaml.v3"
 )
@@ -59,19 +60,75 @@ func run() error {
 	config.Parallelism = parallelism
 	config.TestPattern = testPattern
 
-	// Load config if specified
-	if configFile != "" {
-		// Check if the config file exists
-		if _, err := os.Stat(configFile); os.IsNotExist(err) {
-			return fmt.Errorf("config file not found: %s", configFile)
+	// If the .gitignore file exists, read the simple entries from it.
+	var ignoreMatcher *dotignore.PatternMatcher
+	if _, err := os.Stat(".gitignore"); err == nil {
+		ignoreMatcher, err = dotignore.NewPatternMatcherFromFile(".gitignore")
+		if err != nil {
+			return fmt.Errorf("failed to parse .gitignore file: %v", err)
 		}
+	}
+
+	// Find all e2e.yaml files recursively
+	if verbosity > 2 {
+		fmt.Printf("--- INFO: Finding e2e.yaml files recursively\n")
+	}
+	var configFiles []string
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Ignore hidden files and directories (like .github, .git, etc).
+		if strings.HasPrefix(info.Name(), ".") {
+			return nil
+		}
+
+		// Check if the file is ignored by the .gitignore file.
+		if ignoreMatcher != nil {
+			isIgnored, err := ignoreMatcher.Matches(path)
+			if err != nil {
+				return fmt.Errorf("failed to check if file is ignored: %v", err)
+			}
+			if isIgnored {
+				if info.IsDir() {
+					if verbosity > 2 {
+						fmt.Printf("--- INFO: Ignoring directory %s because it matches a .gitignore entry\n", path)
+					}
+					return filepath.SkipDir
+				}
+				if verbosity > 2 {
+					fmt.Printf("--- INFO: Ignoring file %s because it matches a .gitignore entry\n", path)
+				}
+				return nil
+			}
+		}
+
+		if !info.IsDir() && info.Name() == filepath.Base(configFile) {
+			if verbosity > 2 {
+				fmt.Printf("--- INFO: Found e2e.yaml file: %s\n", path)
+			}
+			configFiles = append(configFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to find e2e config files: %v", err)
+	}
+
+	if len(configFiles) == 0 {
+		return fmt.Errorf("no e2e.yaml files found")
+	}
+
+	// Run each config file
+	for _, configFile := range configFiles {
+		fmt.Printf("\n=== Running tests from %s ===\n", configFile)
 
 		// Get the absolute path of the config file
 		absConfigFile, err := filepath.Abs(configFile)
 		if err != nil {
 			return fmt.Errorf("failed to get absolute path of config file: %v", err)
 		}
-		fmt.Printf("--- INFO: Using config file: %s\n", absConfigFile)
 
 		// Read the config file
 		data, err := os.ReadFile(absConfigFile)
@@ -84,22 +141,30 @@ func run() error {
 			return fmt.Errorf("failed to parse config file: %v", err)
 		}
 
+		configDir := filepath.Dir(absConfigFile)
 		if config.Dockerfile != "" {
 			configFileDir := filepath.Dir(absConfigFile)
 			config.Dockerfile = filepath.Join(configFileDir, config.Dockerfile)
 		}
+
+		// The test dir for this run is the directory of the config file.
+		config.TestDir = configDir
+
+		runner, err := suite.NewRunner(config)
+		if err != nil {
+			return err
+		}
+		if err := runner.Setup(); err != nil {
+			return err
+		}
+		defer runner.Cleanup()
+
+		if err := runner.RunTests(); err != nil {
+			return err
+		}
 	}
 
-	runner, err := suite.NewRunner(config)
-	if err != nil {
-		return err
-	}
-	if err := runner.Setup(); err != nil {
-		return err
-	}
-	defer runner.Cleanup()
-
-	return runner.RunTests()
+	return nil
 }
 
 func preprocessArgsForVerbosity() {

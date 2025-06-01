@@ -8,7 +8,6 @@ func TestTestRunner(t *testing.T) {
 	runner, err := NewTestRunner(TestRunnerConfig{
 		TestDir:     "example",
 		Dockerfile:  "Dockerfile",
-		BuildTags:   "e2e",
 		Parallelism: 1,
 		Verbosity:   2,
 	})

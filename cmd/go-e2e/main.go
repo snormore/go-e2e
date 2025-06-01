@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -31,19 +32,7 @@ func main() {
 		Short: "Run containerized end-to-end tests",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			runner, err := e2e.NewTestRunner(
-				e2e.TestRunnerConfig{
-					TestDir:       ".",
-					Dockerfile:    config.Dockerfile,
-					TestAssets:    config.TestAssets,
-					Verbosity:     config.Verbosity,
-					NoFastFail:    config.NoFastFail,
-					NoParallel:    config.NoParallel,
-					Parallelism:   config.Parallelism,
-					BuildTags:     config.BuildTags,
-					DockerRunArgs: config.DockerRunArgs,
-				},
-			)
+			runner, err := e2e.NewTestRunner(config)
 			if err != nil {
 				return err
 			}
@@ -76,16 +65,42 @@ func main() {
 
 	// Load config if specified
 	if configFile != "" {
-		data, err := os.ReadFile(configFile)
-		if err != nil {
-			fmt.Printf("--- INFO: Config file not found, using defaults: %v\n", err)
-		} else {
-			fmt.Printf("--- INFO: Using config file: %s\n", configFile)
+		// Check if the config file exists.
+		if _, err := os.Stat(configFile); os.IsNotExist(err) {
+			fmt.Printf("--- ERROR: Config file not found: %s\n", configFile)
+			os.Exit(1)
+		}
 
-			if err := yaml.Unmarshal(data, &config); err != nil {
-				fmt.Printf("--- ERROR: Failed to parse config file: %v\n", err)
-				os.Exit(1)
-			}
+		// Get the absolute path of the config file.
+		absConfigFile, err := filepath.Abs(configFile)
+		if err != nil {
+			fmt.Printf("--- ERROR: Failed to get absolute path of config file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("--- INFO: Using config file: %s\n", absConfigFile)
+
+		// Read the config file.
+		data, err := os.ReadFile(absConfigFile)
+		if err != nil {
+			fmt.Printf("--- ERROR: Failed to read config file: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Parse the config file.
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			fmt.Printf("--- ERROR: Failed to parse config file: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Update the given dockerfile path to be relative to the config file directory.
+		// TODO: Should we set a default here?
+		// if config.Dockerfile == "" {
+		// 	config.Dockerfile = "Dockerfile"
+		// }
+		if config.Dockerfile != "" {
+			configFileDir := filepath.Dir(absConfigFile)
+			config.Dockerfile = filepath.Join(configFileDir, config.Dockerfile)
+			fmt.Printf("--- DEBUG: Updating dockerfile path to be relative to config file directory: %s\n", config.Dockerfile)
 		}
 	}
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"io"
@@ -21,14 +20,11 @@ import (
 
 const (
 	containerBuildImagePrefix = "e2e-test-runner"
-	tmpDirPrefix              = "e2e-test-runner"
 )
 
 type TestRunnerConfig struct {
 	TestDir       string   `yaml:"test-dir"`
 	Dockerfile    string   `yaml:"dockerfile"`
-	TestAssets    []string `yaml:"test-assets"`
-	BuildTags     string   `yaml:"build-tags"`
 	DockerRunArgs []string `yaml:"docker-run-args"`
 
 	Verbosity   int  `yaml:"verbosity"`
@@ -40,9 +36,6 @@ type TestRunnerConfig struct {
 type TestRunner struct {
 	config TestRunnerConfig
 
-	tmpDir              string
-	tmpAssetsDir        string
-	tmpBinDir           string
 	containerBuildImage string
 
 	mu              sync.Mutex
@@ -54,53 +47,29 @@ type TestRunner struct {
 }
 
 func NewTestRunner(config TestRunnerConfig) (*TestRunner, error) {
-	runner := &TestRunner{
-		config: config,
-	}
 
-	// Validate required options.
-	if config.TestDir == "" {
-		return nil, fmt.Errorf("testDir is required")
-	}
+	// Check required options.
 	if config.Dockerfile == "" {
 		return nil, fmt.Errorf("dockerfile is required")
 	}
 
-	return runner, nil
+	// Set option defaults.
+	if config.TestDir == "" {
+		config.TestDir = "."
+	}
+
+	return &TestRunner{
+		config: config,
+	}, nil
 }
 
 func (r *TestRunner) Setup() error {
-	var err error
-
-	// Initialize the temporary directory.
-	r.tmpDir, err = os.MkdirTemp("", tmpDirPrefix+"-*")
-	if err != nil {
-		return fmt.Errorf("failed to create tmp directory: %v", err)
-	}
-
 	// Initialize the container build image.
 	r.containerBuildImage = fmt.Sprintf("%s-%s:dev", containerBuildImagePrefix, randomShortID())
 
-	// Initialize the assets directory and copy the assets.
-	r.tmpAssetsDir = filepath.Join(r.tmpDir, "assets")
-	if err := os.MkdirAll(r.tmpAssetsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create assets directory: %v", err)
-	}
-	if err := r.copyAssets(); err != nil {
-		return err
-	}
-
-	// Initialize the binary directory and build the test binary.
-	r.tmpBinDir = filepath.Join(r.tmpDir, "bin")
-	if err := os.MkdirAll(r.tmpBinDir, 0755); err != nil {
-		return fmt.Errorf("failed to create bin directory: %v", err)
-	}
-	if err := r.buildTestBinary(); err != nil {
-		return err
-	}
-
 	// Build the docker image.
-	if err := r.buildDockerImage(); err != nil {
+	err := r.buildDockerImage()
+	if err != nil {
 		return err
 	}
 
@@ -117,70 +86,44 @@ func (r *TestRunner) Setup() error {
 	return nil
 }
 
-func (r *TestRunner) Cleanup() {
-	_ = os.RemoveAll(r.tmpDir)
-}
+func (r *TestRunner) Cleanup() {}
 
-func (r *TestRunner) copyAssets() error {
-	for _, asset := range r.config.TestAssets {
-		asset = strings.TrimSpace(asset)
-		if asset == "" {
-			continue
-		}
-		assetPath := r.config.TestDir + "/" + asset
-		if r.config.Verbosity > 1 {
-			fmt.Printf("--- DEBUG: Copying %s to %s\n", assetPath, filepath.Join(r.tmpAssetsDir, asset))
-		}
-		if err := exec.Command("cp", "-r", assetPath, filepath.Join(r.tmpAssetsDir, asset)).Run(); err != nil {
-			return fmt.Errorf("failed to copy %s: %v", asset, err)
-		}
+func (r *TestRunner) buildDockerImage() error {
+	// Find the first go.mod file in any parent directory.
+	goModPath, err := findGoMod(r.config.TestDir)
+	if err != nil {
+		return fmt.Errorf("failed to find go.mod: %v", err)
 	}
-	return nil
-}
+	goModDir := filepath.Dir(goModPath)
+	fmt.Printf("--- DEBUG: go.mod directory: %s\n", goModDir)
 
-func (r *TestRunner) buildTestBinary() error {
-	if r.config.Verbosity > 1 {
-		fmt.Printf("--- DEBUG: Building test binary to %s\n", r.tmpBinDir)
+	// Print current working directory.
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %v", err)
 	}
-	args := []string{"test", "-c", "-o", filepath.Join(r.tmpBinDir, "run-tests"), "."}
-	if r.config.BuildTags != "" {
-		args = append(args, "-tags", r.config.BuildTags)
-	}
-	buildCmd := exec.Command("go", args...)
-	buildCmd.Dir = r.config.TestDir
+	fmt.Printf("--- DEBUG: Current working directory: %s\n", wd)
+
+	// Build the docker image.
+	fmt.Printf("--- INFO: Building docker image %s (this may take a while)...\n", r.containerBuildImage)
+	start := time.Now()
+	buildCmd := exec.Command("docker", "build",
+		"-t", r.containerBuildImage,
+		"-f", r.config.Dockerfile,
+		".")
 	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
+	buildCmd.Dir = goModDir
 	if r.config.Verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(buildCmd.Args, " "))
 	}
-	output, err := buildCmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to build test binary: %v\n%s", err, string(output))
+	var output []byte
+	if r.config.Verbosity > 0 {
+		buildCmd.Stdout = os.Stdout
+		buildCmd.Stderr = os.Stderr
+		err = buildCmd.Run()
+	} else {
+		output, err = buildCmd.CombinedOutput()
 	}
-
-	return nil
-}
-
-func (r *TestRunner) buildDockerImage() error {
-	localDockerfilePath := filepath.Join(r.config.TestDir, r.config.Dockerfile)
-	if _, err := os.Stat(localDockerfilePath); os.IsNotExist(err) {
-		return fmt.Errorf("dockerfile not found at %s", localDockerfilePath)
-	}
-
-	tmpDockerfilePath := filepath.Join(r.tmpDir, "Dockerfile")
-	if err := exec.Command("cp", localDockerfilePath, tmpDockerfilePath).Run(); err != nil {
-		return fmt.Errorf("failed to copy Dockerfile: %v", err)
-	}
-
-	fmt.Printf("--- INFO: Building docker image %s (this may take a while)...\n", r.containerBuildImage)
-	start := time.Now()
-	buildDockerCmd := exec.Command("docker", "build",
-		"--build-arg", "TEST_BIN=bin/run-tests",
-		"--build-arg", "TEST_ASSETS=assets",
-		"-t", r.containerBuildImage,
-		"-f", tmpDockerfilePath,
-		r.tmpDir)
-	buildDockerCmd.Dir = r.tmpDir
-	output, err := buildDockerCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to build docker image\n%s", output)
 	}
@@ -200,45 +143,6 @@ func (r *TestRunner) getTestsToRun() ([]string, error) {
 			f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 			if err != nil {
 				return fmt.Errorf("failed to parse %s: %v", path, err)
-			}
-
-			// Check build tags.
-			if r.config.BuildTags != "" {
-				buildTags := strings.Split(r.config.BuildTags, ",")
-				var buildConstraint constraint.Expr
-
-				// Find build constraint in comments before package declaration.
-				for _, cg := range f.Comments {
-					for _, c := range cg.List {
-						text := strings.TrimSpace(c.Text)
-						if constraint.IsGoBuild(text) {
-							buildConstraint, err = constraint.Parse(text)
-							if err != nil {
-								return fmt.Errorf("failed to parse build constraint %q: %v", text, err)
-							}
-							break
-						}
-					}
-
-					// Stop early if the comment group ends before package declaration.
-					if cg.End() >= f.Package {
-						break
-					}
-				}
-
-				if buildConstraint != nil {
-					// Create a tag set for evaluation
-					tagSet := make(map[string]bool)
-					for _, tag := range buildTags {
-						tagSet[tag] = true
-					}
-
-					if !buildConstraint.Eval(func(tag string) bool {
-						return tagSet[tag]
-					}) {
-						return nil
-					}
-				}
 			}
 
 			for _, decl := range f.Decls {
@@ -306,7 +210,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	fmt.Printf("=== RUN: %s\n", test)
 	start := time.Now()
 
-	args := []string{"run", "--rm",
+	args := []string{"run", "--rm", "--tty",
 		"--name", sanitizeContainerName(test)}
 	if len(r.config.DockerRunArgs) > 0 {
 		for _, arg := range r.config.DockerRunArgs {
@@ -321,7 +225,6 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	if r.config.Verbosity > 1 {
 		fmt.Printf("--- DEBUG: Running: %s\n", strings.Join(cmd.Args, " "))
 	}
-	cmd.Dir = r.tmpDir
 
 	var output bytes.Buffer
 	if r.config.Verbosity > 0 {
@@ -420,4 +323,23 @@ func sanitizeContainerName(testName string) string {
 
 func randomShortID() string {
 	return fmt.Sprintf("%04x", rand.Intn(65536))
+}
+
+func findGoMod(dir string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %v", err)
+	}
+
+	for {
+		goModPath := filepath.Join(absDir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return goModPath, nil
+		}
+		parent := filepath.Dir(absDir)
+		if parent == absDir {
+			return "", fmt.Errorf("go.mod not found in %s or any parent directory", absDir)
+		}
+		absDir = parent
+	}
 }

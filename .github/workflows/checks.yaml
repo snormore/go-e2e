@@ -26,7 +26,7 @@ jobs:
         run: go tool go-e2e -vv
         working-directory: example
       - name: Run from root should execute recursively
-        run: go run ../main.go -vv
-      - name: Run from example should execute only example tests
         run: go run main.go -vv
+      - name: Run from example should execute only example tests
+        run: go run ../main.go -vv
         working-directory: example

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/snormore/go-e2e"
+	"github.com/snormore/go-e2e/pkg/suite"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -23,7 +23,7 @@ func main() {
 	var noParallel bool
 	var parallelism int
 
-	config := e2e.TestRunnerConfig{}
+	config := suite.RunnerConfig{}
 
 	preprocessArgsForVerbosity()
 
@@ -32,7 +32,7 @@ func main() {
 		Short: "Run containerized end-to-end tests",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			runner, err := e2e.NewTestRunner(config)
+			runner, err := suite.NewRunner(config)
 			if err != nil {
 				return err
 			}

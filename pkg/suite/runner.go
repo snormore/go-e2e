@@ -1,4 +1,4 @@
-package e2e
+package suite
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ const (
 	containerBuildImagePrefix = "e2e-test-runner"
 )
 
-type TestRunnerConfig struct {
+type RunnerConfig struct {
 	TestDir       string   `yaml:"test-dir"`
 	Dockerfile    string   `yaml:"dockerfile"`
 	DockerRunArgs []string `yaml:"docker-run-args"`
@@ -33,8 +33,8 @@ type TestRunnerConfig struct {
 	Parallelism int  `yaml:"parallelism"`
 }
 
-type TestRunner struct {
-	config TestRunnerConfig
+type Runner struct {
+	config RunnerConfig
 
 	containerBuildImage string
 
@@ -46,7 +46,7 @@ type TestRunner struct {
 	testsToRun      []string
 }
 
-func NewTestRunner(config TestRunnerConfig) (*TestRunner, error) {
+func NewRunner(config RunnerConfig) (*Runner, error) {
 
 	// Check required options.
 	if config.Dockerfile == "" {
@@ -58,12 +58,12 @@ func NewTestRunner(config TestRunnerConfig) (*TestRunner, error) {
 		config.TestDir = "."
 	}
 
-	return &TestRunner{
+	return &Runner{
 		config: config,
 	}, nil
 }
 
-func (r *TestRunner) Setup() error {
+func (r *Runner) Setup() error {
 	// Initialize the container build image.
 	r.containerBuildImage = fmt.Sprintf("%s-%s:dev", containerBuildImagePrefix, randomShortID())
 
@@ -86,9 +86,9 @@ func (r *TestRunner) Setup() error {
 	return nil
 }
 
-func (r *TestRunner) Cleanup() {}
+func (r *Runner) Cleanup() {}
 
-func (r *TestRunner) buildDockerImage() error {
+func (r *Runner) buildDockerImage() error {
 	// Find the first go.mod file in any parent directory.
 	goModPath, err := findGoMod(r.config.TestDir)
 	if err != nil {
@@ -131,7 +131,7 @@ func (r *TestRunner) buildDockerImage() error {
 	return nil
 }
 
-func (r *TestRunner) getTestsToRun() ([]string, error) {
+func (r *Runner) getTestsToRun() ([]string, error) {
 	var tests []string
 	fset := token.NewFileSet()
 	err := filepath.Walk(r.config.TestDir, func(path string, info os.FileInfo, err error) error {
@@ -163,7 +163,7 @@ func (r *TestRunner) getTestsToRun() ([]string, error) {
 	return tests, nil
 }
 
-func (r *TestRunner) RunTests() error {
+func (r *Runner) RunTests() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -206,7 +206,7 @@ func (r *TestRunner) RunTests() error {
 	return nil
 }
 
-func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.CancelFunc) {
+func (r *Runner) runTest(ctx context.Context, test string, cancel context.CancelFunc) {
 	fmt.Printf("=== RUN: %s\n", test)
 	start := time.Now()
 
@@ -283,7 +283,7 @@ func (r *TestRunner) runTest(ctx context.Context, test string, cancel context.Ca
 	}
 }
 
-func (r *TestRunner) printSummary(suiteDuration time.Duration) {
+func (r *Runner) printSummary(suiteDuration time.Duration) {
 	fmt.Println()
 	if len(r.failedTests) == 0 {
 		fmt.Printf("=== SUMMARY: PASS (%.2fs)\n", suiteDuration.Seconds())
